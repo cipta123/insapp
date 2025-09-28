@@ -1,0 +1,5 @@
+# Ignore the v2 project folder
+v2/
+
+# Ignore log files
+logs/
