@@ -238,6 +238,59 @@ if ($activeTab === 'comments') {
             font-weight: bold;
         }
 
+        .content-text {
+            background: white;
+            padding: 0.75rem;
+            border-radius: 8px;
+            margin: 0.5rem 0;
+            border: 1px solid #e9ecef;
+        }
+
+        .reply-form {
+            background: #f8f9fa;
+            padding: 1rem;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+        }
+        
+        .reply-btn {
+            transition: all 0.2s;
+        }
+        
+        .reply-btn:hover {
+            transform: translateY(-1px);
+        }
+        
+        .reply-status {
+            padding: 0.5rem;
+            border-radius: 4px;
+            margin-top: 0.5rem;
+        }
+        
+        .reply-status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .reply-status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .char-counter {
+            font-size: 0.75rem;
+        }
+        
+        .char-counter.warning {
+            color: #ffc107;
+        }
+        
+        .char-counter.danger {
+            color: #dc3545;
+        }
+
         @media (max-width: 768px) {
             .main-content.shifted {
                 margin-left: 0;
@@ -413,9 +466,46 @@ if ($activeTab === 'comments') {
                                                     <?= nl2br(htmlspecialchars($comment['comment_text'])) ?>
                                                 </div>
                                             <?php endif; ?>
-                                            <small class="text-muted">
-                                                <i class="fas fa-hashtag"></i> <?= htmlspecialchars($comment['comment_id']) ?>
-                                            </small>
+                                            <div class="row mt-2">
+                                                <div class="col-md-6">
+                                                    <small class="text-muted">
+                                                        <i class="fas fa-hashtag"></i> ID: <?= htmlspecialchars($comment['comment_id']) ?>
+                                                    </small>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <small class="text-muted">
+                                                        <i class="fas fa-user"></i> From: <?= htmlspecialchars($comment['username'] ?: 'Unknown') ?>
+                                                    </small>
+                                                </div>
+                                            </div>
+                                            
+                                            <!-- Reply Button -->
+                                            <div class="mt-3">
+                                                <button class="btn btn-outline-primary btn-sm reply-btn" onclick="toggleReplyForm('<?= $comment['comment_id'] ?>')" title="Reply to this comment">
+                                                    <i class="fas fa-reply"></i> Reply
+                                                </button>
+                                            </div>
+                                            
+                                            <!-- Reply Form (hidden by default) -->
+                                            <div id="reply-form-<?= $comment['comment_id'] ?>" class="reply-form mt-3" style="display: none;">
+                                                <div class="mb-3">
+                                                    <label class="form-label">Reply to @<?= htmlspecialchars($comment['username'] ?: 'user') ?>:</label>
+                                                    <textarea id="reply-text-<?= $comment['comment_id'] ?>" class="form-control" rows="3" maxlength="2200" placeholder="Write your reply..." oninput="updateCharCounter('<?= $comment['comment_id'] ?>')"></textarea>
+                                                    <div class="d-flex justify-content-between mt-2">
+                                                        <small class="text-muted">Max 2200 characters</small>
+                                                        <small class="char-counter" id="char-count-<?= $comment['comment_id'] ?>">0</small>
+                                                    </div>
+                                                </div>
+                                                <div class="d-flex gap-2">
+                                                    <button class="btn btn-primary btn-sm" onclick="sendReply('<?= $comment['comment_id'] ?>')" id="send-btn-<?= $comment['comment_id'] ?>">
+                                                        <i class="fas fa-paper-plane"></i> Send Reply
+                                                    </button>
+                                                    <button class="btn btn-secondary btn-sm" onclick="toggleReplyForm('<?= $comment['comment_id'] ?>')">
+                                                        <i class="fas fa-times"></i> Cancel
+                                                    </button>
+                                                </div>
+                                                <div id="reply-status-<?= $comment['comment_id'] ?>" class="mt-2"></div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -553,6 +643,128 @@ if ($activeTab === 'comments') {
             } else {
                 icon.classList.remove('fa-chevron-up');
                 icon.classList.add('fa-chevron-down');
+            }
+        }
+
+        // Reply functionality
+        function toggleReplyForm(commentId) {
+            const form = document.getElementById(`reply-form-${commentId}`);
+            const btn = document.querySelector(`[onclick="toggleReplyForm('${commentId}')"]`);
+            
+            if (form.style.display === 'none' || form.style.display === '') {
+                form.style.display = 'block';
+                btn.innerHTML = '<i class="fas fa-times"></i> Cancel';
+                btn.classList.remove('btn-outline-primary');
+                btn.classList.add('btn-outline-secondary');
+                
+                // Focus on textarea
+                const textarea = document.getElementById(`reply-text-${commentId}`);
+                setTimeout(() => textarea.focus(), 100);
+                
+                // Setup character counter
+                textarea.addEventListener('input', function() {
+                    updateCharCounter(commentId);
+                });
+                
+            } else {
+                form.style.display = 'none';
+                btn.innerHTML = '<i class="fas fa-reply"></i> Reply';
+                btn.classList.remove('btn-outline-secondary');
+                btn.classList.add('btn-outline-primary');
+                
+                // Clear form
+                document.getElementById(`reply-text-${commentId}`).value = '';
+                document.getElementById(`reply-status-${commentId}`).innerHTML = '';
+            }
+        }
+
+        function updateCharCounter(commentId) {
+            const textarea = document.getElementById(`reply-text-${commentId}`);
+            const counter = document.getElementById(`char-count-${commentId}`);
+            const length = textarea.value.length;
+            
+            counter.textContent = length;
+            
+            // Update counter color based on length
+            counter.className = 'char-counter';
+            if (length > 2000) {
+                counter.classList.add('danger');
+            } else if (length > 1800) {
+                counter.classList.add('warning');
+            }
+        }
+
+        function sendReply(commentId) {
+            const textarea = document.getElementById(`reply-text-${commentId}`);
+            const sendBtn = document.getElementById(`send-btn-${commentId}`);
+            const replyText = textarea.value.trim();
+            
+            if (!replyText) {
+                showReplyStatus(commentId, 'error', '<i class="fas fa-exclamation-triangle"></i> Please enter a reply message.');
+                return;
+            }
+            
+            if (replyText.length > 2200) {
+                showReplyStatus(commentId, 'error', '<i class="fas fa-exclamation-triangle"></i> Reply is too long. Max 2200 characters.');
+                return;
+            }
+            
+            // Disable form during sending
+            textarea.disabled = true;
+            sendBtn.disabled = true;
+            sendBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending...';
+            
+            showReplyStatus(commentId, 'loading', '<i class="fas fa-spinner fa-spin"></i> Sending reply...');
+            
+            // Send AJAX request
+            fetch('reply_comment.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    comment_id: commentId,
+                    reply_text: replyText
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showReplyStatus(commentId, 'success', 
+                        `<i class="fas fa-check"></i> Reply posted successfully! Reply ID: ${data.reply_id}`);
+                    
+                    // Clear form after success
+                    setTimeout(() => {
+                        toggleReplyForm(commentId);
+                    }, 3000);
+                    
+                } else {
+                    showReplyStatus(commentId, 'error', 
+                        `<i class="fas fa-exclamation-triangle"></i> Error: ${data.error}`);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showReplyStatus(commentId, 'error', 
+                    '<i class="fas fa-exclamation-triangle"></i> Network error. Please try again.');
+            })
+            .finally(() => {
+                // Re-enable form
+                textarea.disabled = false;
+                sendBtn.disabled = false;
+                sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Send Reply';
+            });
+        }
+
+        function showReplyStatus(commentId, type, message) {
+            const statusDiv = document.getElementById(`reply-status-${commentId}`);
+            statusDiv.innerHTML = `<div class="reply-status ${type}">${message}</div>`;
+            
+            // Auto-hide success messages
+            if (type === 'success') {
+                setTimeout(() => {
+                    statusDiv.innerHTML = '';
+                }, 5000);
             }
         }
 
