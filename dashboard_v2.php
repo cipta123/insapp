@@ -30,15 +30,69 @@ $recentStats = [
     'recent_messages' => $db->select('instagram_messages', 'COUNT(*) as count', 'created_at >= ?', [$yesterday])[0]['count'] ?? 0
 ];
 
-// Get data based on active tab
-if ($activeTab === 'comments') {
-    $totalItems = $db->select('instagram_comments', 'COUNT(*) as count')[0]['count'] ?? 0;
-    $totalPages = ceil($totalItems / $itemsPerPage);
-    $items = $db->select('instagram_comments', '*', '', [], 'created_at DESC', $itemsPerPage, $offset);
-} else {
-    $totalItems = $db->select('instagram_messages', 'COUNT(*) as count')[0]['count'] ?? 0;
-    $totalPages = ceil($totalItems / $itemsPerPage);
-    $items = $db->select('instagram_messages', '*', '', [], 'created_at DESC', $itemsPerPage, $offset);
+// Optimized data loading with caching
+$cacheTime = 30; // Cache for 30 seconds
+$cacheFile = "cache/dashboard_v2_{$activeTab}_p{$page}.json";
+
+// Create cache directory if not exists
+if (!file_exists('cache')) {
+    mkdir('cache', 0755, true);
+}
+
+// Check cache first
+$useCache = false;
+if (file_exists($cacheFile) && (time() - filemtime($cacheFile)) < $cacheTime) {
+    $cachedData = json_decode(file_get_contents($cacheFile), true);
+    if ($cachedData) {
+        $totalItems = $cachedData['totalItems'];
+        $totalPages = $cachedData['totalPages'];
+        $items = $cachedData['items'];
+        $useCache = true;
+    }
+}
+
+// If no cache, fetch from database
+if (!$useCache) {
+    if ($activeTab === 'comments') {
+        // Optimized query with specific fields only
+        $totalItems = $db->select('instagram_comments', 'COUNT(*) as count')[0]['count'] ?? 0;
+        $totalPages = ceil($totalItems / $itemsPerPage);
+        
+        // Only select needed fields to reduce memory usage
+        $items = $db->select(
+            'instagram_comments', 
+            'comment_id, username, comment_text, created_at, media_id', 
+            '', 
+            [], 
+            'created_at DESC', 
+            $itemsPerPage, 
+            $offset
+        );
+    } else {
+        // Optimized messages query
+        $totalItems = $db->select('instagram_messages', 'COUNT(*) as count')[0]['count'] ?? 0;
+        $totalPages = ceil($totalItems / $itemsPerPage);
+        
+        // Only select needed fields
+        $items = $db->select(
+            'instagram_messages', 
+            'message_id, sender_id, message_text, created_at, is_echo, is_self', 
+            '', 
+            [], 
+            'created_at DESC', 
+            $itemsPerPage, 
+            $offset
+        );
+    }
+    
+    // Cache the results
+    $cacheData = [
+        'totalItems' => $totalItems,
+        'totalPages' => $totalPages,
+        'items' => $items,
+        'timestamp' => time()
+    ];
+    file_put_contents($cacheFile, json_encode($cacheData));
 }
 ?>
 
@@ -291,6 +345,38 @@ if ($activeTab === 'comments') {
             color: #dc3545;
         }
 
+        /* Loading states */
+        body.loading {
+            cursor: wait;
+        }
+
+        body.loading * {
+            pointer-events: none;
+        }
+
+        .nav-link.loading {
+            opacity: 0.6;
+            pointer-events: none;
+        }
+
+        /* Performance optimizations */
+        .comment-card, .message-card {
+            will-change: transform;
+        }
+
+        .stats-card {
+            will-change: transform;
+        }
+
+        /* Smooth transitions */
+        .card-body {
+            transition: opacity 0.3s ease;
+        }
+
+        body.loading .card-body {
+            opacity: 0.7;
+        }
+
         @media (max-width: 768px) {
             .main-content.shifted {
                 margin-left: 0;
@@ -434,12 +520,12 @@ if ($activeTab === 'comments') {
                 <div class="card-header">
                     <ul class="nav nav-tabs card-header-tabs">
                         <li class="nav-item">
-                            <a class="nav-link <?= $activeTab === 'comments' ? 'active' : '' ?>" href="?tab=comments">
+                            <a class="nav-link <?= $activeTab === 'comments' ? 'active' : '' ?>" href="?tab=comments" onclick="showTabLoading(this)">
                                 <i class="fas fa-comments"></i> Comments (<?= number_format($stats['total_comments']) ?>)
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link <?= $activeTab === 'messages' ? 'active' : '' ?>" href="?tab=messages">
+                            <a class="nav-link <?= $activeTab === 'messages' ? 'active' : '' ?>" href="?tab=messages" onclick="showTabLoading(this)">
                                 <i class="fas fa-envelope"></i> Messages (<?= number_format($stats['total_messages']) ?>)
                             </a>
                         </li>
@@ -767,6 +853,45 @@ if ($activeTab === 'comments') {
                 }, 5000);
             }
         }
+
+        // Tab loading optimization
+        function showTabLoading(tabLink) {
+            // Show loading state
+            const originalText = tabLink.innerHTML;
+            tabLink.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...';
+            
+            // Add loading class to body
+            document.body.classList.add('loading');
+            
+            // Restore after a short delay (visual feedback)
+            setTimeout(() => {
+                tabLink.innerHTML = originalText;
+            }, 500);
+        }
+
+        // Preload tab data on hover (prefetch optimization)
+        document.querySelectorAll('.nav-link').forEach(link => {
+            link.addEventListener('mouseenter', function() {
+                const url = this.href;
+                if (url && !this.classList.contains('active')) {
+                    // Preload the page in background
+                    const preloadLink = document.createElement('link');
+                    preloadLink.rel = 'prefetch';
+                    preloadLink.href = url;
+                    document.head.appendChild(preloadLink);
+                }
+            });
+        });
+
+        // Cache management - clear old cache files
+        function clearOldCache() {
+            // This would be handled server-side, but we can trigger it
+            fetch('clear_cache.php?type=dashboard_v2', {method: 'POST'})
+                .catch(() => {}); // Silent fail
+        }
+
+        // Clear cache every 5 minutes
+        setInterval(clearOldCache, 5 * 60 * 1000);
 
         // Close sidebar when clicking outside on mobile
         document.addEventListener('click', function(event) {
